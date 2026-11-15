@@ -1,53 +1,61 @@
-# AML Shield — AI-Assisted Anti-Money Laundering Dashboard
+# AML Shield 3.0 — IBM AML Investigation Platform
 
-Full-stack academic prototype using **Flask + SQLite + HTML/CSS/JavaScript + Chart.js + scikit-learn + XGBoost**. The provided 10,000-row CSV is included in `data/transactions.csv`.
+An offline academic full-stack application built from the uploaded IBM HI-Small dataset. **No Flask, Node, or npm needed** to run the interface: Python standard-library HTTP server + SQLite backend + JavaScript frontend. Scikit-learn is needed only for optional retraining.
 
-## Quick start (Windows / VS Code)
+## Quick start (Windows)
 
-```powershell
-cd AML_Shield
-py -3.11 -m venv .venv
-.venv\Scripts\activate
-python -m pip install -r requirements.txt
-python ml.py
-python app.py
-```
+1. Extract the ZIP.
+2. Open a terminal inside `AML_Shield_3`.
+3. Run `py app.py` (or `python app.py`).
+4. Open http://localhost:8000
 
-Open **http://127.0.0.1:5000**. If you already use Python 3.12 or 3.13, substitute your installed version. The training step may take a minute or two.
+The ZIP includes the prepared SQLite database and two fitted model files, so initial setup requires no pip installations. It also includes the HI-Small account metadata and pattern annotations. The full 454 MB transaction CSV is **not duplicated** in the ZIP; the prepared database is included instead.
 
-On macOS/Linux use `python3 -m venv .venv`, `source .venv/bin/activate`, and the same last three commands.
+## Pages
 
-## Demonstration (5 minutes)
+- **Overview:** counts from all 5,078,345 transactions; indexed sample timeline; recent synthetic laundering labels; investigation workload.
+- **AML Alerts:** searchable/paginated transaction queue, labeled or normal transaction filter.
+- **Transaction details:** actual account transfer details, descriptive risk indicators, related indexed transfers and a network graph.
+- **Investigations:** persistent SQLite cases, analyst assignment, priority, notes, status and audit log.
+- **Model Lab:** held-out sampled-pool results for Logistic Regression and Random Forest; actual confusion matrices.
 
-1. **Overview**: real 10,000-row dataset counts, volume, risk distribution, top alerts.
-2. **Transactions**: filter high-risk rows and open an investigation.
-3. **Investigations**: add notes, set `Investigating` / `Escalated`, save; SQLite persists changes.
-4. **Risk Assessment**: score a manual cross-border offshore transaction; show model and rule indicators.
-5. **Batch Analysis**: upload the included CSV (or another matching CSV) and view scored alerts.
-6. **ML Performance**: compare Logistic Regression, Random Forest, XGBoost with actual holdout metrics, PR curve and confusion matrix.
+## Rebuild from full transaction CSV (optional)
+
+Install: `py -m pip install -r requirements-train.txt`
+
+Place `HI-Small_Trans.csv` inside `data/`, then run `py prepare.py`. This **replaces** the database and deletes existing cases. Alternatively set the `AML_TRANSACTIONS` environment variable to its path. It can take a few minutes.
+
+## Dataset and methodological honesty
+
+- Source: IBM synthetic AML HI-Small transaction dataset, not real customer data.
+- Full file: **5,078,345 transactions**, **5,177 labeled laundering**. Full-file counts are computed during ingestion.
+- Indexed SQLite subset: **96,242 transactions**, retaining all 5,177 positive labels and a deterministic sample of negatives. Indexed charts and queues are explicitly labeled as sampled.
+- ML training pool: approximately 2,500 negative rows per 100,000-row chunk plus all positives. A 25% stratified holdout is used. Therefore the evaluation prevalence is **artificially enriched** and measured AUPRC/precision do not reflect performance at the original base rate. Use these only as exploratory classroom model comparisons.
+- A random transaction-level split can share accounts between train and test. Future improvement: temporal split, account-disjoint validation, and scoring all transactions out-of-sample.
+- Network graph is only the **indexed one-hop neighborhood**; it is not a verified complete laundering cycle or proven layering scheme.
+- Nominal values across currencies are not comparable without FX conversion. Large nominal payment indicators are descriptive, not standardized AML thresholds.
+- Pattern text files provide synthetic laundering scenario annotations; they are included as reference data but **not yet parsed into an authoritative pattern-matching graph**.
+- Two models are actually fitted: Logistic Regression and Random Forest. No XGBoost or SMOTE results are claimed.
+- This is a **local classroom demonstration**, not a production AML platform. It has no authentication or access control. Do not expose it to the public internet or use real banking/customer information.
 
 ## API
 
-- `GET /api/overview` — summary and priority alerts
-- `GET /api/transactions?q=&risk=High&page=1` — filtered transactions
-- `POST /api/predict` — score one transaction (JSON)
-- `POST /api/upload` — screen uploaded CSV (multipart `file`)
-- `GET /api/metrics` — actual holdout evaluation
-- `GET /api/cases` — saved investigations
-- `POST /api/cases/<transaction_id>` — update case with `status`, `notes`
+GET `/api/overview`, `/api/transactions?label=1&page=1&search=...`, `/api/transaction/{id}`, `/api/cases`, `/api/case/{id}`, `/api/health`.
 
-## Dataset and methodological limitations
+POST `/api/cases` with `{"transaction_id":123}`, POST `/api/case/{id}` with `{"status":"Investigating","priority":"High","assignee":"Analyst","notes":"..."}`.
 
-The uploaded dataset has **10,000 rows**, **10 columns**, and labels `Source of Money` = `Illegal` (7,017) / `Legal` (2,983). This is **not** the 284,807-row, 0.172%-fraud European credit card dataset described in the earlier proposal. No claims of 0.17% prevalence should be made about the supplied CSV. `Reported by Authority` is not used as a model feature because it may leak downstream enforcement information; it is used only as an explicit review-rule indicator. `Source of Money` is used only as the model target, never as a scoring input.
+## Future research improvements
 
-The model uses a **stratified 75/25 holdout split**, preprocessing fitted only on training data, and fixed random seeds. It compares Logistic Regression (class-weighted), Random Forest (class-weighted), and XGBoost; selection is by **AUPRC**. **SMOTE is not used in this version**, because this supplied dataset has a 70% positive class and is not highly imbalanced toward the negative class. This is a documented deviation from the proposal, not a hidden change. Results are generated by running `python ml.py`.
+1. Account-level graph feature engineering and time-respecting detection of fan-in, fan-out, cycles and gather-scatter patterns.
+2. Test on the original full class prevalence and evaluate precision at fixed investigation capacity.
+3. Compare XGBoost, weighted trees and SMOTE fitted strictly on training folds.
+4. Explain individual ML scores using feature contributions and calibration.
+5. Authentication, immutable audit trail, privacy controls, and role-based access for a real-world deployment.
 
-Risk scores combine model proxy predictions with explainable rules for large amounts, cross-border movement, offshore/crypto channels, repeated person activity within the current dataset/batch, and authority-reported transactions. They are **heuristic screening priorities, not calibrated probabilities of money laundering**. Repeated activity does not prove structuring; full transaction graphs, beneficial ownership, customer KYC and sequence data would be required for stronger AML pattern detection. An `Illegal` label does not mean a confirmed money laundering offense. The system does not submit regulatory reports, block accounts, or connect to banks. No authentication or security hardening is included; **run locally only**, not on the public internet.
+## Backend-integrated transaction streaming simulator
 
-## Troubleshooting
+Open **Live Simulator** in the left navigation. Start replay to send five historical indexed HI-Small transactions per HTTP request to `POST /api/stream/control` every 1.5 seconds. Each request executes `best_model.joblib` inference, applies illustrative AML risk rules, persists results in SQLite `stream_events`, and returns new events for the UI. Pause, single-step, and reset controls are provided. The state persists across page refreshes; streaming is browser-driven and pauses if the page is closed. API endpoints: `GET /api/stream`, `POST /api/stream/control` with `{ "action": "start" | "pause" | "step" | "reset", "batch": 5 }`. Start before step.
 
-- `ModuleNotFoundError`: activate `.venv` and rerun `python -m pip install -r requirements.txt`.
-- `python` not recognized: use `py` on Windows.
-- Blank charts: check your internet connection for the Chart.js CDN; all other functions are local.
-- Port in use: change `port=5000` at the bottom of `app.py`.
-- Rebuild metrics/models: rerun `python ml.py`.
+**Important limitations:** This is replay of the previously indexed case-enriched HI-Small subset (96,242 records), not the entire 5.08-million-row CSV or a connected bank. Ground-truth laundering labels are used only for post-prediction comparison, not model features or rule scoring. The ML score is uncalibrated, the risk formula is illustrative, and nominal values in different currencies are not converted. Rules are transaction-level, not validated multi-hop network detection. No authenticated banking integration, message broker, or regulatory SAR submission is implemented. For a production system use event streaming, event-time state, deduplication, authentication, audit security, model calibration, and bank-specific validation.
+
+**Live demo:** Start server with `python app.py`, open `http://localhost:8000`, select Live Simulator, press Start replay, watch processed/alerts counters and event table, pause and click Investigate on a transaction, then open a case. For deterministic explanation, use One transaction to advance manually.
