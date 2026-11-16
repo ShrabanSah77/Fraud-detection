@@ -117,11 +117,52 @@ class Handler(SimpleHTTPRequestHandler):
       else:return self.sendjson({'error':'Invalid action'},400)
       c.commit()
     return self.sendjson(stream_step(data.get('batch',5)) if action=='step' else stream_status())
-   if p=='/api/cases':
-    tx=int(data['transaction_id']);assert one('SELECT id FROM transactions WHERE id=?',(tx,)),'Unknown transaction'
-    with db() as c:
-     c.execute('INSERT OR IGNORE INTO cases(transaction_id) VALUES (?)',(tx,));case=one('SELECT id FROM cases WHERE transaction_id=?',(tx,));c.execute('INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',(case['id'],'Created','Case opened for review'));c.commit()
-    return self.sendjson({'id':case['id']})
+   
+
+    if p == '/api/cases':
+     tx = int(data['transaction_id'])
+
+     # Check if transaction exists
+     transaction = one(
+      'SELECT id FROM transactions WHERE id=?',
+      (tx,)
+     )
+
+     if not transaction:
+      return self.sendjson(
+       {'error': 'Transaction not found'}, 404
+      )
+
+     with db() as c:
+      # Insert case if it does not exist
+      cursor = c.execute(
+       'INSERT OR IGNORE INTO cases(transaction_id) VALUES (?)',
+       (tx,)
+      )
+
+      created = cursor.rowcount == 1
+
+      # Read using the same database connection
+      case = c.execute(
+       'SELECT id FROM cases WHERE transaction_id=?',
+       (tx,)
+      ).fetchone()
+
+      if case is None:
+       raise ValueError('Unable to create investigation case')
+
+      # Save audit record only for a new case
+      if created:
+       c.execute(
+        'INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',
+        (case['id'], 'Created', 'Case opened for review')
+       )
+
+      c.commit()
+
+     return self.sendjson({'id': case['id']})
+
+
    if p.startswith('/api/case/'):
     cid=int(p.rsplit('/',1)[1]);assert one('SELECT id FROM cases WHERE id=?',(cid,)),'Unknown case'
     status=data.get('status','Open');assert status in ['Open','Investigating','Escalated','Closed','Dismissed']
