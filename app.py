@@ -100,79 +100,79 @@ class Handler(SimpleHTTPRequestHandler):
    return super().do_GET()
   except Exception as e:return self.sendjson({'error':str(e)},500)
  def do_POST(self):
-  p=urlparse(self.path).path
+  p = urlparse(self.path).path
   try:
-   n=int(self.headers.get('Content-Length','0'))
-   if n>100000:return self.sendjson({'error':'Request too large'},413)
-   data=json.loads(self.rfile.read(n) or b'{}')
-   if p=='/api/stream/control':
-    action=data.get('action')
+   n = int(self.headers.get('Content-Length', '0'))
+   if n > 100000:
+    return self.sendjson({'error': 'Request too large'}, 413)
+   data = json.loads(self.rfile.read(n) or b'{}')
+
+   if p == '/api/stream/control':
+    action = data.get('action')
     with STREAM_LOCK:
      with db() as c:
-      if action=='start':c.execute('UPDATE stream_state SET running=1 WHERE id=1')
-      elif action=='pause':c.execute('UPDATE stream_state SET running=0 WHERE id=1')
-      elif action=='reset':
-       c.execute('UPDATE stream_state SET cursor=0,running=0,processed=0,alerts=0 WHERE id=1');c.execute('DELETE FROM stream_events')
-      elif action=='step':pass
-      else:return self.sendjson({'error':'Invalid action'},400)
+      if action == 'start':
+       c.execute('UPDATE stream_state SET running=1 WHERE id=1')
+      elif action == 'pause':
+       c.execute('UPDATE stream_state SET running=0 WHERE id=1')
+      elif action == 'reset':
+       c.execute('UPDATE stream_state SET cursor=0,running=0,processed=0,alerts=0 WHERE id=1')
+       c.execute('DELETE FROM stream_events')
+      elif action == 'step':
+       pass
+      else:
+       return self.sendjson({'error': 'Invalid action'}, 400)
       c.commit()
-    return self.sendjson(stream_step(data.get('batch',5)) if action=='step' else stream_status())
-   
+    if action == 'step':
+     return self.sendjson(stream_step(data.get('batch', 5)))
+    return self.sendjson(stream_status())
 
-    if p == '/api/cases':
+   if p == '/api/cases':
+    try:
      tx = int(data['transaction_id'])
-
-     # Check if transaction exists
-     transaction = one(
-      'SELECT id FROM transactions WHERE id=?',
-      (tx,)
-     )
-
-     if not transaction:
-      return self.sendjson(
-       {'error': 'Transaction not found'}, 404
-      )
-
-     with db() as c:
-      # Insert case if it does not exist
-      cursor = c.execute(
-       'INSERT OR IGNORE INTO cases(transaction_id) VALUES (?)',
-       (tx,)
-      )
-
-      created = cursor.rowcount == 1
-
-      # Read using the same database connection
-      case = c.execute(
-       'SELECT id FROM cases WHERE transaction_id=?',
-       (tx,)
-      ).fetchone()
-
-      if case is None:
-       raise ValueError('Unable to create investigation case')
-
-      # Save audit record only for a new case
-      if created:
-       c.execute(
-        'INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',
-        (case['id'], 'Created', 'Case opened for review')
-       )
-
-      c.commit()
-
-     return self.sendjson({'id': case['id']})
-
+    except (KeyError, ValueError, TypeError):
+     return self.sendjson({'error': 'Valid transaction_id required'}, 400)
+    with db() as c:
+     transaction = c.execute('SELECT id FROM transactions WHERE id=?', (tx,)).fetchone()
+     if transaction is None:
+      return self.sendjson({'error': f'Transaction {tx} not found'}, 404)
+     cursor = c.execute('INSERT OR IGNORE INTO cases(transaction_id) VALUES (?)', (tx,))
+     created = cursor.rowcount == 1
+     case = c.execute('SELECT id FROM cases WHERE transaction_id=?', (tx,)).fetchone()
+     if case is None:
+      raise ValueError('Unable to create investigation case')
+     if created:
+      c.execute('INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',
+                (case['id'], 'Created', 'Case opened for review'))
+     c.commit()
+    print('INVESTIGATION CASE:', case['id'], flush=True)
+    return self.sendjson({'id': case['id']})
 
    if p.startswith('/api/case/'):
-    cid=int(p.rsplit('/',1)[1]);assert one('SELECT id FROM cases WHERE id=?',(cid,)),'Unknown case'
-    status=data.get('status','Open');assert status in ['Open','Investigating','Escalated','Closed','Dismissed']
-    priority=data.get('priority','High');assert priority in ['Low','Medium','High','Critical']
-    notes=str(data.get('notes',''))[:5000];assignee=str(data.get('assignee','Unassigned'))[:100]
+    cid = int(p.rsplit('/', 1)[1])
+    status = data.get('status', 'Open')
+    priority = data.get('priority', 'High')
+    notes = str(data.get('notes', ''))[:5000]
+    assignee = str(data.get('assignee', 'Unassigned'))[:100]
+    if status not in ['Open', 'Investigating', 'Escalated', 'Closed', 'Dismissed']:
+     return self.sendjson({'error': 'Invalid status'}, 400)
+    if priority not in ['Low', 'Medium', 'High', 'Critical']:
+     return self.sendjson({'error': 'Invalid priority'}, 400)
     with db() as c:
-     c.execute('UPDATE cases SET status=?,priority=?,assignee=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(status,priority,assignee,notes,cid));c.execute('INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',(cid,'Updated',f'{status}; {priority}; assigned {assignee}; notes: {notes[:180]}'));c.commit()
-    return self.sendjson({'ok':True})
-   return self.sendjson({'error':'Not found'},404)
-  except Exception as e:return self.sendjson({'error':str(e)},400)
+     existing = c.execute('SELECT id FROM cases WHERE id=?', (cid,)).fetchone()
+     if existing is None:
+      return self.sendjson({'error': 'Case not found'}, 404)
+     c.execute('UPDATE cases SET status=?,priority=?,assignee=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+               (status, priority, assignee, notes, cid))
+     c.execute('INSERT INTO audit(case_id,action,details) VALUES (?,?,?)',
+               (cid, 'Updated', f'{status}; {priority}; assigned {assignee}; notes: {notes[:180]}'))
+     c.commit()
+    return self.sendjson({'ok': True})
+
+   return self.sendjson({'error': 'Not found'}, 404)
+  except Exception as e:
+   print('POST ERROR:', repr(e), flush=True)
+   return self.sendjson({'error': str(e)}, 400)
 if __name__=='__main__':
  if not DB.exists():raise SystemExit('Run python prepare.py first')
  port=int(os.getenv('PORT','8000'));print(f'AML Shield 3.0 http://localhost:{port}',flush=True);ThreadingHTTPServer(('127.0.0.1',port),Handler).serve_forever()
