@@ -72,6 +72,55 @@ def stream_status():
  st=one('SELECT * FROM stream_state WHERE id=1')
  events=rows('SELECT e.*,t.timestamp,t.sender,t.receiver,t.paid,t.pay_currency,t.format FROM stream_events e JOIN transactions t ON t.id=e.transaction_id ORDER BY e.id DESC LIMIT 60')
  return {'state':st,'events':events,'mode':'Historical IBM HI-Small indexed-subset replay; not a live bank feed','model':'Saved Random Forest or Logistic Regression model; scores not calibrated','label_policy':'Synthetic labels shown for retrospective evaluation only, never used as scoring inputs'}
+
+
+def network_analysis(account, limit=120):
+ """Local, indexed-subset account graph. These are indicators, not AML findings."""
+ account = str(account).strip()
+ if not account or len(account) > 100:
+  raise ValueError('Enter a valid account identifier')
+ limit = max(10, min(int(limit), 200))
+ with db() as c:
+  # Focus on direct neighbors; retrieve actual transactions, not invented edges.
+  direct = [dict(r) for r in c.execute(
+   'SELECT id,timestamp,sender,receiver,paid,pay_currency,label FROM transactions '
+   'WHERE sender=? OR receiver=? ORDER BY timestamp DESC,id DESC LIMIT ?',
+   (account,account,limit)).fetchall()]
+  peers = list(dict.fromkeys([x['receiver'] if x['sender']==account else x['sender'] for x in direct]))[:30]
+  edges = direct[:]
+  if peers:
+   marks = ','.join('?' for _ in peers)
+   extra = c.execute(
+    f'SELECT id,timestamp,sender,receiver,paid,pay_currency,label FROM transactions '
+    f'WHERE sender IN ({marks}) AND receiver IN ({marks}) '
+    'ORDER BY timestamp DESC,id DESC LIMIT 150',peers+peers).fetchall()
+   seen={x['id'] for x in edges}
+   edges += [dict(x) for x in extra if x['id'] not in seen]
+ sent = [x for x in direct if x['sender']==account]
+ received = [x for x in direct if x['receiver']==account]
+ sources = {x['sender'] for x in received if x['sender']!=account}
+ targets = {x['receiver'] for x in sent if x['receiver']!=account}
+ indicators=[]
+ if len(sources)>=3:indicators.append({'type':'Fan-in','detail':f'{len(sources)} distinct incoming counterparties in retrieved history'})
+ if len(targets)>=3:indicators.append({'type':'Fan-out','detail':f'{len(targets)} distinct outgoing counterparties in retrieved history'})
+ pairs={(x['sender'],x['receiver']) for x in edges}
+ reciprocal=sorted(x for x in sources & targets if x!=account)
+ if reciprocal:indicators.append({'type':'Reciprocal transfers','detail':f'Both directions observed with {len(reciprocal)} counterparties; sequence not established'})
+ cycles=[]
+ for a,b in pairs:
+  if a!=account or b==account:continue
+  for c,d in pairs:
+   if c==b and d not in (account,b) and (d,account) in pairs:
+    path=[account,b,d,account]
+    if path not in cycles:cycles.append(path)
+    if len(cycles)>=5:break
+  if len(cycles)>=5:break
+ if cycles:indicators.append({'type':'Three-account cycle','detail':f'{len(cycles)} possible directed cycles in indexed records; timestamps/amounts not validated'})
+ return {'account':account,'edges':edges,'direct_count':len(direct),
+         'incoming':len(received),'outgoing':len(sent),'sources':len(sources),
+         'targets':len(targets),'indicators':indicators,'cycles':cycles,
+         'scope':'Indexed HI-Small investigation subset only; limited recent records and sampled normals. Patterns are exploratory, not proof of laundering.'}
+
 init_stream()
 class Handler(SimpleHTTPRequestHandler):
  def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
@@ -95,6 +144,7 @@ class Handler(SimpleHTTPRequestHandler):
    if p.startswith('/api/case/'):
     id=int(p.rsplit('/',1)[1]);c=one('SELECT * FROM cases WHERE id=?',(id,));return self.sendjson({'case':c,'audit':rows('SELECT * FROM audit WHERE case_id=? ORDER BY id DESC',(id,))} if c else {},200 if c else 404)
    if p=='/api/stream':return self.sendjson(stream_status())
+   if p=='/api/network':return self.sendjson(network_analysis(q.get('account',''),q.get('limit',120)))
    if p=='/api/health':return self.sendjson({'ok':DB.exists()})
    if p=='/':self.path='/index.html'
    return super().do_GET()
