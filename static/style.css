@@ -1,3 +1,5 @@
+/* AML Shield stylesheet: presentation only; no model scoring or database logic. */
+/* Global fonts and default dark theme. */
 :root {
     font-family: Inter, Segoe UI, Arial, sans-serif;
     color: #dbe7f3;
@@ -9,15 +11,18 @@
     box-sizing: border-box
 }
 
+/* Base document spacing. */
 body {
     margin: 0
 }
 
+/* Main two-column application layout. */
 .shell {
     display: flex;
     min-height: 100vh
 }
 
+/* Fixed workspace navigation panel. */
 aside {
     width: 248px;
     flex-shrink: 0;
@@ -31,6 +36,7 @@ aside {
     height: 100vh
 }
 
+/* Project logo and title. */
 .brand {
     display: flex;
     align-items: center;
@@ -76,11 +82,13 @@ aside {
     margin-bottom: 15px
 }
 
+/* Sidebar navigation layout. */
 nav {
     display: grid;
     gap: 7px
 }
 
+/* Clickable navigation items. */
 nav button {
     border: 0;
     text-align: left;
@@ -130,12 +138,14 @@ nav button:hover {
     color: #5e7487
 }
 
+/* Primary dashboard content region. */
 main {
     min-width: 0;
     flex: 1;
     padding: 34px clamp(20px, 3.5vw, 60px)
 }
 
+/* Page title and status header. */
 header {
     display: flex;
     justify-content: space-between;
@@ -190,6 +200,7 @@ header p {
 }
 
 .card,
+/* Dashboard sections, tables, and visualizations. */
 .panel {
     background: #101e2d;
     border: 1px solid #243649;
@@ -242,6 +253,7 @@ header p {
     gap: 20px
 }
 
+/* Transaction volume bar-chart styling. */
 .bar-chart {
     display: flex;
     align-items: end;
@@ -297,6 +309,7 @@ header p {
     background: #d9805e
 }
 
+/* Transaction and investigation table formatting. */
 table {
     width: 100%;
     border-collapse: collapse;
@@ -395,6 +408,7 @@ textarea {
     font: inherit
 }
 
+/* Form fields used for search and case editing. */
 input {
     min-width: 220px
 }
@@ -442,6 +456,7 @@ textarea {
     line-height: 2
 }
 
+/* Account relationship graph styling. */
 .network {
     width: 100%;
     height: 330px;

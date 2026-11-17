@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+  <!-- Browser metadata and the shared visual theme. -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <!-- Main application layout: navigation sidebar plus page content. -->
     <div class="shell">
       <aside>
         <div class="brand">
@@ -14,6 +16,7 @@
           <div><b>AML SHIELD</b><small>FINANCIAL INTELLIGENCE</small></div>
         </div>
         <div class="side-label">WORKSPACE</div>
+        <!-- Each button selects a frontend view; app.js handles the click. -->
         <nav>
           <button data-view="dashboard" class="active">
             ▦ <span>Overview</span></button
@@ -49,6 +52,7 @@
           </div>
         </header>
         <div id="notice" class="notice hidden"></div>
+        <!-- JavaScript renders the selected dashboard page into this container. -->
         <section id="content"></section>
         <footer>
           AML SHIELD · COMPLETE DEMO · IBM AML synthetic data · Educational
@@ -56,6 +60,7 @@
         </footer>
       </main>
     </div>
+    <!-- Load navigation, API requests, charts, and investigation interactions. -->
     <script src="/app.js"></script>
   </body>
 </html>
