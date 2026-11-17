@@ -1,3 +1,6 @@
+// AML Shield browser UI: communicates with the Python HTTP API; no training occurs here.
+// Displayed laundering labels come from synthetic data and are not confirmed crimes.
+
 const $ = (s) => document.querySelector(s),
   content = $("#content");
 let page = 1,
@@ -34,6 +37,7 @@ const badge = (v) =>
   `<span class="pill ${v ? "danger" : ""}">${v ? "LABELED AML" : "NORMAL"}</span>`;
 const btn = (name, fn) =>
   `<button class="ghost" onclick="${fn}">${name}</button>`;
+// Switch the active page and update its heading; render the matching section asynchronously.
 function navigate(v) {
   const labels = {
     dashboard: ["OVERVIEW", "Command Center", "Historical synthetic transaction intelligence and AML investigation activity."],
@@ -74,6 +78,7 @@ function navigate(v) {
 document
   .querySelectorAll("nav button")
   .forEach((b) => (b.onclick = () => navigate(b.dataset.view)));
+// Fetch dataset statistics and draw the command-center KPI cards and activity chart.
 async function dashboard() {
   let d = await api("/api/overview");
   let max = Math.max(1, ...d.daily.map((x) => x.total)),
@@ -89,6 +94,7 @@ async function dashboard() {
 function txTable(data) {
   return `<div style="overflow-x:auto"><table><thead><tr><th>Transaction</th><th>Sender → Receiver</th><th>Amount</th><th>Dataset label</th><th></th></tr></thead><tbody>${data.map((x) => `<tr><td class="mono">TX-${x.id}</td><td class="mono">${esc(x.sender)} → ${esc(x.receiver)}</td><td>${fmt(x.paid)} ${esc(x.pay_currency)}</td><td>${badge(x.label)}</td><td><button class="ghost" onclick="showTransaction(${x.id})">Investigate ↗</button></td></tr>`).join("") || '<tr><td colspan="5">No records found</td></tr>'}</tbody></table></div>`;
 }
+// Fetch searchable AML transactions and display alert-triage results.
 async function alerts() {
   let q = new URLSearchParams({ page, label: filter, search, format }),
     d = await api("/api/transactions?" + q);
@@ -141,6 +147,7 @@ async function showTransaction(id) {
     tools.appendChild(b);
   }
 }
+// Render observed account connections as an SVG graph.
 function drawNetwork(edges, a, b) {
   let ids = [
       ...new Set([a, b, ...edges.flatMap((e) => [e.sender, e.receiver])]),
@@ -174,6 +181,7 @@ function drawNetwork(edges, a, b) {
   $("#network").innerHTML =
     `<svg class="network" viewBox="0 0 ${w} ${h}" role="img" aria-label="Transaction account relationship graph">${lines}${nodes}</svg>`;
 }
+// Create or reopen a transaction investigation case.
 async function openCase(id) {
   let r = await api("/api/cases", {
     method: "POST",
@@ -183,10 +191,12 @@ async function openCase(id) {
   notify("Investigation case opened");
   showCase(r.id);
 }
+// List investigation cases stored in SQLite.
 async function cases() {
   let d = await api("/api/cases");
   content.innerHTML = `<div class="panel"><h2>Investigation case registry</h2><p class="desc">Persistent local SQLite records with analyst notes and audit history. Select a case to review.</p><div style="overflow-x:auto"><table><thead><tr><th>Case</th><th>Transaction</th><th>Status</th><th>Priority</th><th>Assigned</th><th>Last updated</th><th></th></tr></thead><tbody>${d.map((c) => `<tr><td class="mono">CASE-${c.id}</td><td>TX-${c.transaction_id}</td><td><span class="pill ${c.status === "Escalated" ? "danger" : ""}">${esc(c.status)}</span></td><td>${esc(c.priority)}</td><td>${esc(c.assignee)}</td><td>${esc(c.updated_at)}</td><td>${btn("Review ↗", `showCase(${c.id})`)}</td></tr>`).join("") || '<tr><td colspan="7">No cases yet. Open an AML alert and create the first investigation.</td></tr>'}</tbody></table></div></div>`;
 }
+// Display the selected case and its audit history.
 async function showCase(id) {
   let d = await api("/api/case/" + id),
     c = d.case;
@@ -196,6 +206,7 @@ async function showCase(id) {
     "Review the evidence, assign responsibility, and document your decision.";
   content.innerHTML = `<div class="tools">${btn("← All investigations", "navigate('cases')")} ${btn("View transaction", `showTransaction(${c.transaction_id})`)}</div><div class="split"><div class="panel"><h2>Case workflow</h2><p class="desc">Transaction TX-${c.transaction_id} · Created ${esc(c.created_at)}</p><div class="detail-grid"><div><small>Status</small><select id="caseStatus">${["Open", "Investigating", "Escalated", "Closed", "Dismissed"].map((x) => `<option ${x === c.status ? "selected" : ""}>${x}</option>`).join("")}</select></div><div><small>Priority</small><select id="casePriority">${["Low", "Medium", "High", "Critical"].map((x) => `<option ${x === c.priority ? "selected" : ""}>${x}</option>`).join("")}</select></div></div><p class="muted">Assigned analyst</p><input id="assignee" value="${esc(c.assignee)}"><p class="muted">Investigator notes and findings</p><textarea id="notes">${esc(c.notes)}</textarea><p><button class="primary" onclick="saveCase(${id})">Save case and audit event</button></p></div><div class="panel"><h2>Audit trail</h2><p class="desc">Local chronological history of case activity</p>${d.audit.map((a) => `<div style="padding:14px 0;border-bottom:1px solid #294055"><div><strong>${esc(a.action)}</strong> <span class="muted" style="float:right">${esc(a.created_at)}</span></div><p class="muted">${esc(a.details)}</p></div>`).join("")}</div></div>`;
 }
+// Send investigator edits to the backend and refresh the case view.
 async function saveCase(id) {
   let body = {
     status: $("#caseStatus").value,
@@ -211,6 +222,7 @@ async function saveCase(id) {
   notify("Case updated and audit event saved");
   showCase(id);
 }
+// Show stored evaluation metrics for the trained classifiers.
 async function models() {
   let d = await api("/api/overview");
   content.innerHTML = `<div class="panel"><h2>Model comparison · measured results</h2><p class="desc">Stratified held-out split from a case-enriched sampled pool; the original 5.08M transactions are not the evaluation denominator.</p><div style="overflow-x:auto"><div class="modelrow head"><span>MODEL</span><span>PRECISION</span><span>RECALL</span><span>F1</span><span>AUPRC</span><span>ACCURACY</span></div>${Object.entries(
@@ -245,12 +257,14 @@ async function models() {
 }
 
 // Account flow intelligence: real records from /api/network, no simulated graph edges.
+// Show the account search and observed transaction-network visualization.
 async function network(account = "") {
   const selected = account || window.lastNetworkAccount || "";
   content.innerHTML = `<div class="panel"><h2>Account network analysis</h2><p class="desc">Find observed relationships and exploratory transaction patterns within the indexed IBM HI-Small subset.</p><div class="tools"><input id="networkAccount" placeholder="Enter sender or receiver account" value="${esc(selected)}"><button class="primary" id="networkSearch">Analyze account</button></div><p class="muted">Tip: open a transaction and click Analyze sender network to prefill an account.</p></div><div id="networkResults"></div>`;
   $("#networkSearch").onclick = () => loadNetwork($("#networkAccount").value);
   if (selected) await loadNetwork(selected);
 }
+// Request account relationships from the backend and draw the graph.
 async function loadNetwork(account) {
   account = String(account || "").trim();
   if (!account) {
@@ -300,6 +314,7 @@ function streamStopTimer() {
     streamTimer = null;
   }
 }
+// Display historical transaction replay controls and recent scoring events.
 async function stream() {
   streamStopTimer();
   let d = await api("/api/stream");
