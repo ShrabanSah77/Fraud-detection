@@ -12,17 +12,20 @@
 }
 
 /* Base document spacing. */
+
 body {
     margin: 0
 }
 
 /* Main two-column application layout. */
+
 .shell {
     display: flex;
     min-height: 100vh
 }
 
 /* Fixed workspace navigation panel. */
+
 aside {
     width: 248px;
     flex-shrink: 0;
@@ -37,6 +40,7 @@ aside {
 }
 
 /* Project logo and title. */
+
 .brand {
     display: flex;
     align-items: center;
@@ -83,12 +87,14 @@ aside {
 }
 
 /* Sidebar navigation layout. */
+
 nav {
     display: grid;
     gap: 7px
 }
 
 /* Clickable navigation items. */
+
 nav button {
     border: 0;
     text-align: left;
@@ -139,6 +145,7 @@ nav button:hover {
 }
 
 /* Primary dashboard content region. */
+
 main {
     min-width: 0;
     flex: 1;
@@ -146,6 +153,7 @@ main {
 }
 
 /* Page title and status header. */
+
 header {
     display: flex;
     justify-content: space-between;
@@ -254,6 +262,7 @@ header p {
 }
 
 /* Transaction volume bar-chart styling. */
+
 .bar-chart {
     display: flex;
     align-items: end;
@@ -310,6 +319,7 @@ header p {
 }
 
 /* Transaction and investigation table formatting. */
+
 table {
     width: 100%;
     border-collapse: collapse;
@@ -409,6 +419,7 @@ textarea {
 }
 
 /* Form fields used for search and case editing. */
+
 input {
     min-width: 220px
 }
@@ -457,6 +468,7 @@ textarea {
 }
 
 /* Account relationship graph styling. */
+
 .network {
     width: 100%;
     height: 330px;

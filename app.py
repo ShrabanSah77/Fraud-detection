@@ -8,16 +8,20 @@ from pathlib import Path
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
 from urllib.parse import urlparse,parse_qs
 ROOT=Path(__file__).parent;DB=ROOT/'data/aml.db'
+
 # Open the SQLite database with dictionary-style result rows.
 def db():
  c=sqlite3.connect(DB,timeout=15);c.row_factory=sqlite3.Row;return c
+ 
 # Run a query that returns multiple rows as JSON-ready dictionaries.
 def rows(sql,args=()):
  with db() as c:return [dict(r) for r in c.execute(sql,args).fetchall()]
+ 
 # Retrieve a single database record, or None if missing.
 def one(sql,args=()):
  with db() as c:
   r=c.execute(sql,args).fetchone();return dict(r) if r else None
+  
 # Assemble transaction details, risk indicators, linked records, and case information.
 def detail(id):
  t=one('SELECT * FROM transactions WHERE id=?',(id,))
@@ -32,15 +36,18 @@ def detail(id):
  t['related']=rows('SELECT id,timestamp,sender,receiver,paid,pay_currency,label FROM transactions WHERE (sender=? OR receiver=? OR sender=? OR receiver=?) AND id!=? ORDER BY timestamp DESC LIMIT 40',(t['sender'],t['sender'],t['receiver'],t['receiver'],id))
  t['network']=rows('SELECT sender,receiver,paid,pay_currency,label FROM transactions WHERE (sender=? OR receiver=? OR sender=? OR receiver=?) LIMIT 75',(t['sender'],t['sender'],t['receiver'],t['receiver']))
  return t
+
 # Replay real IBM HI-Small records from the indexed subset; labels are hidden from scoring.
 STREAM_LOCK=threading.RLock()
 MODEL=None
 FEATURE_COLUMNS=['Amount Received','Amount Paid','same_bank','self_transfer','currency_change','hour','Receiving Currency','Payment Currency','Payment Format']
+
 # Create persistent replay state and event tables when needed.
 def init_stream():
  with db() as c:
   c.executescript("""CREATE TABLE IF NOT EXISTS stream_state(id INTEGER PRIMARY KEY CHECK(id=1),cursor INTEGER NOT NULL DEFAULT 0,running INTEGER NOT NULL DEFAULT 0,processed INTEGER NOT NULL DEFAULT 0,alerts INTEGER NOT NULL DEFAULT 0);INSERT OR IGNORE INTO stream_state(id) VALUES (1);CREATE TABLE IF NOT EXISTS stream_events(id INTEGER PRIMARY KEY AUTOINCREMENT,transaction_id INTEGER NOT NULL,processed_at TEXT DEFAULT CURRENT_TIMESTAMP,model_score REAL NOT NULL,rule_score INTEGER NOT NULL,risk_score INTEGER NOT NULL,severity TEXT NOT NULL,reasons TEXT NOT NULL,alert INTEGER NOT NULL,synthetic_label INTEGER NOT NULL);CREATE INDEX IF NOT EXISTS ix_stream_tx ON stream_events(transaction_id);""")
   c.commit()
+
 # Load the saved ML pipeline and combine predicted probability with illustrative risk rules.
 def score_batch(transactions):
  global MODEL
@@ -55,13 +62,16 @@ def score_batch(transactions):
   if t['sender']==t['receiver']:reasons.append('Self-account transfer');points+=18
   if t['from_bank']!=t['to_bank']:reasons.append('Interbank transfer');points+=8
   if t['recv_currency']!=t['pay_currency']:reasons.append('Currency conversion');points+=12
+  
   # Nominal currency amounts are not comparable across currencies.
   if t['paid']>=100000 and t['pay_currency']=='US Dollar':reasons.append('Large USD-denominated transfer');points+=16
+  
   # Historical account graph in indexed subset, not a full-transaction history.
   score=int(round(min(100,100*(.75*float(prob)+.25*(points/54)))))
   severity='Critical' if score>=80 else 'High' if score>=60 else 'Medium' if score>=40 else 'Low'
   output.append((t['id'],float(prob),points,score,severity,json.dumps(reasons or ['ML feature-based assessment']),int(score>=60),t['label']))
  return output
+
 # Advance the historical replay cursor and store scored events and alerts.
 def stream_step(batch=5):
  batch=max(1,min(30,int(batch)))
@@ -69,6 +79,7 @@ def stream_step(batch=5):
   with db() as c:
    st=c.execute('SELECT * FROM stream_state WHERE id=1').fetchone()
    if not st['running']:return stream_status()
+   
    # Ordering is fixed by historical timestamp and id; cursor is the ordinal offset.
    ts=[dict(r) for r in c.execute('SELECT * FROM transactions ORDER BY timestamp,id LIMIT ? OFFSET ?',(batch,st['cursor']))]
    if not ts:
@@ -78,6 +89,7 @@ def stream_step(batch=5):
    c.execute('UPDATE stream_state SET cursor=cursor+?,processed=processed+?,alerts=alerts+? WHERE id=1',(len(ts),len(ts),sum(e[6] for e in events)))
    c.commit()
   return stream_status()
+
 # Return replay progress and recent events to the frontend.
 def stream_status():
  st=one('SELECT * FROM stream_state WHERE id=1')
@@ -93,6 +105,7 @@ def network_analysis(account, limit=120):
   raise ValueError('Enter a valid account identifier')
  limit = max(10, min(int(limit), 200))
  with db() as c:
+  
   # Focus on direct neighbors; retrieve actual transactions, not invented edges.
   direct = [dict(r) for r in c.execute(
    'SELECT id,timestamp,sender,receiver,paid,pay_currency,label FROM transactions '
@@ -136,9 +149,11 @@ def network_analysis(account, limit=120):
 init_stream()
 class Handler(SimpleHTTPRequestHandler):
  def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
+ 
  # Serialize API responses to JSON with an HTTP status code.
  def sendjson(self,obj,status=200):
   raw=json.dumps(obj,default=str).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+ 
  # Serve read-only API endpoints; otherwise serve static frontend files.
  def do_GET(self):
   u=urlparse(self.path);p=u.path;q={k:v[0] for k,v in parse_qs(u.query).items()}
@@ -163,6 +178,7 @@ class Handler(SimpleHTTPRequestHandler):
    if p=='/':self.path='/index.html'
    return super().do_GET()
   except Exception as e:return self.sendjson({'error':str(e)},500)
+ 
  # Process replay controls and investigation updates sent from the browser.
  def do_POST(self):
   p = urlparse(self.path).path

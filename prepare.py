@@ -39,21 +39,25 @@ def main():
     for chunk in pd.read_csv(SOURCE,chunksize=100000,dtype={'From Bank':str,'To Bank':str,'Account':str,'Account.1':str},low_memory=False):
         chunk['Is Laundering']=pd.to_numeric(chunk['Is Laundering'],errors='coerce').fillna(0).astype(int)
         total+=len(chunk);positive+=int(chunk['Is Laundering'].sum())
+        
         # retain every labeled positive and a deterministic sample of negatives for interactive investigation
         keep=(chunk['Is Laundering'].eq(1) | (rng.random(len(chunk))<0.018))
         sub=chunk.loc[keep].copy()
         vals=[]
         for row in sub.itertuples(index=False,name=None):
+            
             # schema order matches input csv
             idseq+=1
             ts,fb,sa,tb,ra,recv,rc,paid,pc,fmt,label=row
             vals.append((idseq,str(ts),str(fb),str(sa),str(tb),str(ra),float(recv),str(rc),float(paid),str(pc),str(fmt),int(label)))
         conn.executemany('INSERT INTO transactions(id,timestamp,from_bank,sender,to_bank,receiver,received,recv_currency,paid,pay_currency,format,label) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',vals)
+        
         # representative train pool from raw original data, capped for memory
         pos=chunk[chunk['Is Laundering'].eq(1)]; neg=chunk[chunk['Is Laundering'].eq(0)].sample(n=min(2500,int((chunk['Is Laundering']==0).sum())),random_state=42)
         samples.extend([pos,neg]);conn.commit()
         print('Processed',total,'rows; labeled laundering',positive,flush=True)
     sample=pd.concat(samples,ignore_index=True)
+    
     # avoid excessive positives/negatives; evaluate on a stratified untouched subset of the sampled evaluation pool
     if len(sample)>180000:sample=sample.sample(n=180000,random_state=42)
     y=sample['Is Laundering'].astype(int);X=feature_frame(sample)
@@ -68,6 +72,7 @@ def main():
         m={'precision':round(precision_score(yte,pred,zero_division=0),4),'recall':round(recall_score(yte,pred,zero_division=0),4),'f1':round(f1_score(yte,pred,zero_division=0),4),'auprc':round(average_precision_score(yte,proba),4),'accuracy':round(accuracy_score(yte,pred),4),'confusion_matrix':confusion_matrix(yte,pred,labels=[0,1]).tolist()}
         metrics[name]=m;joblib.dump(pipe,DATA/(name.lower().replace(' ','_')+'.joblib'))
         if m['auprc']>bestscore:bestscore=m['auprc'];best=name
+    
     # train/test sampled selection is case enriched: state this explicitly
     joblib.dump(joblib.load(DATA/(best.lower().replace(' ','_')+'.joblib')),DATA/'best_model.joblib')
     for k,v in {'total':total,'positives':positive,'indexed':idseq,'model':best,'metrics':metrics,'train_pool':len(sample),'evaluation_note':'Case-enriched training/evaluation sample, not the full original transaction distribution; AUPRC cannot be interpreted as deployment performance.'}.items():conn.execute('INSERT INTO metadata VALUES (?,?)',(k,json.dumps(v)))
