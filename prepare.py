@@ -1,3 +1,7 @@
+# AML Shield preparation and model-training pipeline.
+# WARNING: Running this script rebuilds the SQLite database from the source CSV.
+# The sampled evaluation pool is case-enriched; reported scores are not deployment estimates.
+
 import os,sqlite3,json,random
 from pathlib import Path
 import pandas as pd,numpy as np
@@ -16,6 +20,7 @@ CATS=['Receiving Currency','Payment Currency','Payment Format']
 NUM=['Amount Received','Amount Paid','same_bank','self_transfer','currency_change','hour']
 FEATURES=NUM+CATS
 
+# Create numeric and categorical transaction features without including the target label.
 def feature_frame(df):
     x=df[['Amount Received','Amount Paid','Receiving Currency','Payment Currency','Payment Format']].copy()
     x['same_bank']=(df['From Bank'].astype(str)==df['To Bank'].astype(str)).astype(int)
@@ -24,6 +29,7 @@ def feature_frame(df):
     x['hour']=pd.to_datetime(df['Timestamp'],errors='coerce').dt.hour.fillna(0).astype(int)
     return x[FEATURES]
 
+# Read the IBM CSV in chunks, build an indexed subset, train models, and save evaluation metadata.
 def main():
     if not SOURCE.exists(): raise SystemExit('Missing transaction CSV: '+str(SOURCE))
     if DB.exists(): DB.unlink()

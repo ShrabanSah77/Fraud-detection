@@ -1,3 +1,6 @@
+# AML Shield backend: serves the dashboard APIs, scores replayed transactions, and manages investigations.
+# Dataset labels are synthetic ground truth; generated alerts are only review signals.
+
 import json,sqlite3,os,math,threading,time
 import pandas as pd
 import joblib
@@ -5,13 +8,17 @@ from pathlib import Path
 from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
 from urllib.parse import urlparse,parse_qs
 ROOT=Path(__file__).parent;DB=ROOT/'data/aml.db'
+# Open the SQLite database with dictionary-style result rows.
 def db():
  c=sqlite3.connect(DB,timeout=15);c.row_factory=sqlite3.Row;return c
+# Run a query that returns multiple rows as JSON-ready dictionaries.
 def rows(sql,args=()):
  with db() as c:return [dict(r) for r in c.execute(sql,args).fetchall()]
+# Retrieve a single database record, or None if missing.
 def one(sql,args=()):
  with db() as c:
   r=c.execute(sql,args).fetchone();return dict(r) if r else None
+# Assemble transaction details, risk indicators, linked records, and case information.
 def detail(id):
  t=one('SELECT * FROM transactions WHERE id=?',(id,))
  if not t:return None
@@ -29,10 +36,12 @@ def detail(id):
 STREAM_LOCK=threading.RLock()
 MODEL=None
 FEATURE_COLUMNS=['Amount Received','Amount Paid','same_bank','self_transfer','currency_change','hour','Receiving Currency','Payment Currency','Payment Format']
+# Create persistent replay state and event tables when needed.
 def init_stream():
  with db() as c:
   c.executescript("""CREATE TABLE IF NOT EXISTS stream_state(id INTEGER PRIMARY KEY CHECK(id=1),cursor INTEGER NOT NULL DEFAULT 0,running INTEGER NOT NULL DEFAULT 0,processed INTEGER NOT NULL DEFAULT 0,alerts INTEGER NOT NULL DEFAULT 0);INSERT OR IGNORE INTO stream_state(id) VALUES (1);CREATE TABLE IF NOT EXISTS stream_events(id INTEGER PRIMARY KEY AUTOINCREMENT,transaction_id INTEGER NOT NULL,processed_at TEXT DEFAULT CURRENT_TIMESTAMP,model_score REAL NOT NULL,rule_score INTEGER NOT NULL,risk_score INTEGER NOT NULL,severity TEXT NOT NULL,reasons TEXT NOT NULL,alert INTEGER NOT NULL,synthetic_label INTEGER NOT NULL);CREATE INDEX IF NOT EXISTS ix_stream_tx ON stream_events(transaction_id);""")
   c.commit()
+# Load the saved ML pipeline and combine predicted probability with illustrative risk rules.
 def score_batch(transactions):
  global MODEL
  if MODEL is None:MODEL=joblib.load(ROOT/'data/best_model.joblib')
@@ -53,6 +62,7 @@ def score_batch(transactions):
   severity='Critical' if score>=80 else 'High' if score>=60 else 'Medium' if score>=40 else 'Low'
   output.append((t['id'],float(prob),points,score,severity,json.dumps(reasons or ['ML feature-based assessment']),int(score>=60),t['label']))
  return output
+# Advance the historical replay cursor and store scored events and alerts.
 def stream_step(batch=5):
  batch=max(1,min(30,int(batch)))
  with STREAM_LOCK:
@@ -68,12 +78,14 @@ def stream_step(batch=5):
    c.execute('UPDATE stream_state SET cursor=cursor+?,processed=processed+?,alerts=alerts+? WHERE id=1',(len(ts),len(ts),sum(e[6] for e in events)))
    c.commit()
   return stream_status()
+# Return replay progress and recent events to the frontend.
 def stream_status():
  st=one('SELECT * FROM stream_state WHERE id=1')
  events=rows('SELECT e.*,t.timestamp,t.sender,t.receiver,t.paid,t.pay_currency,t.format FROM stream_events e JOIN transactions t ON t.id=e.transaction_id ORDER BY e.id DESC LIMIT 60')
  return {'state':st,'events':events,'mode':'Historical IBM HI-Small indexed-subset replay; not a live bank feed','model':'Saved Random Forest or Logistic Regression model; scores not calibrated','label_policy':'Synthetic labels shown for retrospective evaluation only, never used as scoring inputs'}
 
 
+# Query observed account-to-account transfers and compute network indicators.
 def network_analysis(account, limit=120):
  """Local, indexed-subset account graph. These are indicators, not AML findings."""
  account = str(account).strip()
@@ -124,8 +136,10 @@ def network_analysis(account, limit=120):
 init_stream()
 class Handler(SimpleHTTPRequestHandler):
  def __init__(self,*a,**kw):super().__init__(*a,directory=str(ROOT/'static'),**kw)
+ # Serialize API responses to JSON with an HTTP status code.
  def sendjson(self,obj,status=200):
   raw=json.dumps(obj,default=str).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
+ # Serve read-only API endpoints; otherwise serve static frontend files.
  def do_GET(self):
   u=urlparse(self.path);p=u.path;q={k:v[0] for k,v in parse_qs(u.query).items()}
   try:
@@ -149,6 +163,7 @@ class Handler(SimpleHTTPRequestHandler):
    if p=='/':self.path='/index.html'
    return super().do_GET()
   except Exception as e:return self.sendjson({'error':str(e)},500)
+ # Process replay controls and investigation updates sent from the browser.
  def do_POST(self):
   p = urlparse(self.path).path
   try:
